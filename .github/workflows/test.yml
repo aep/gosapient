@@ -1,0 +1,46 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Install protoc
+        run: |
+          sudo apt-get update && sudo apt-get install -y protobuf-compiler
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+
+      - name: Generate protobuf
+        run: make proto
+
+      - name: Build
+        run: go build ./...
+
+      - name: Start Apex middleware
+        run: docker compose -f docker-compose.ci.yml up -d --build --wait
+
+      - name: Test against Apex
+        run: go test -v -count=1 ./...
+
+      - name: Apex logs
+        if: always()
+        run: docker compose -f docker-compose.ci.yml logs apex
+
+      - name: Stop Apex
+        if: always()
+        run: docker compose -f docker-compose.ci.yml down
