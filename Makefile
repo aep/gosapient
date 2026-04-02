@@ -1,9 +1,12 @@
-PROTO_REPO   := https://github.com/dstl/SAPIENT-Proto-Files.git
-PROTO_DIR    := build/proto-upstream
-STAGING      := build/proto-staging
-GO_PKG       := sapient/pkg/sapientpb
-PROTO_V2_SRC := $(PROTO_DIR)/bsi_flex_335_v2_0
-PROTO_OPTS_SRC := $(PROTO_DIR)/proto_options.proto
+PROTO_REPO      := https://github.com/dstl/SAPIENT-Proto-Files.git
+PROTO_DIR       := build/proto-upstream
+HARNESS_REPO    := https://github.com/dstl/BSI-Flex-335-v2-Test-Harness.git
+HARNESS_DIR     := build/test-harness
+STAGING         := build/proto-staging
+GO_PKG          := sapient/pkg/sapientpb
+PROTO_V2_SRC    := $(PROTO_DIR)/bsi_flex_335_v2_0
+PROTO_OPTS_SRC  := $(PROTO_DIR)/proto_options.proto
+FIXTURES_DIR    := $(HARNESS_DIR)/SapientServicesValidator.UnitTests
 
 .PHONY: proto build test clean ci-up ci-down ci-test
 
@@ -29,11 +32,17 @@ $(PROTO_DIR):
 	@mkdir -p build
 	git -c url.https://github.com/.insteadOf=ignore:// clone --depth 1 $(PROTO_REPO) $(PROTO_DIR)
 
+$(HARNESS_DIR):
+	@mkdir -p build
+	git -c url.https://github.com/.insteadOf=ignore:// clone --depth 1 $(HARNESS_REPO) $(HARNESS_DIR)
+
+fixtures: $(HARNESS_DIR)
+
 build: proto
 	go build ./...
 
-test: build
-	go test -v -count=1 ./...
+test: build fixtures
+	SAPIENT_FIXTURES_DIR=$(abspath $(FIXTURES_DIR)) go test -v -count=1 ./...
 
 clean:
 	rm -rf build/ pkg/sapientpb/
@@ -44,5 +53,5 @@ ci-up:
 ci-down:
 	docker compose -f docker-compose.ci.yml down
 
-ci-test: proto ci-up test
+ci-test: proto fixtures ci-up test
 	@echo "CI tests passed"

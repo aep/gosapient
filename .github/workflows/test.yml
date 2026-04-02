@@ -34,8 +34,11 @@ jobs:
       - name: Start Apex middleware
         run: docker compose -f docker-compose.ci.yml up -d --build --wait
 
+      - name: Fetch test fixtures
+        run: make fixtures
+
       - name: Test against Apex
-        run: go test -v -count=1 ./...
+        run: make test
 
       - name: Apex logs
         if: always()
