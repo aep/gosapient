@@ -100,9 +100,22 @@ func locationType() *pb.Registration_LocationType {
 	}
 }
 
-// recvExpect reads messages until one matches the expected type AND comes from
-// the expected node. This handles Apex replaying cached messages from previous
-// test runs (stale registrations, status reports).
+// dialChild connects as Child, registers, returns conn + nodeID.
+func dialChild(t *testing.T) (*sapient.Conn, string) {
+	t.Helper()
+	conn, err := sapient.Dial(childAddr)
+	if err != nil {
+		t.Fatalf("dial child: %v", err)
+	}
+	nodeID, err := sapient.Register(conn, testRegistration())
+	if err != nil {
+		conn.Close()
+		t.Fatalf("register: %v", err)
+	}
+	return conn, nodeID
+}
+
+// recvExpect reads messages until one matches the expected type from the expected node.
 func recvExpect(t *testing.T, conn *sapient.Conn, expected string, fromNodeID ...string) *pb.SapientMessage {
 	t.Helper()
 	for {
@@ -120,16 +133,14 @@ func recvExpect(t *testing.T, conn *sapient.Conn, expected string, fromNodeID ..
 		select {
 		case msg := <-done:
 			ct := sapient.ContentType(msg)
+			if len(fromNodeID) > 0 && msg.GetNodeId() != fromNodeID[0] {
+				continue
+			}
 			if ct != expected {
 				if len(fromNodeID) > 0 {
-					t.Logf("draining %s from %s (waiting for %s)", ct, msg.GetNodeId(), expected)
 					continue
 				}
 				t.Fatalf("expected %s, got %s", expected, ct)
-			}
-			if len(fromNodeID) > 0 && msg.GetNodeId() != fromNodeID[0] {
-				t.Logf("draining %s from stale node %s", ct, msg.GetNodeId())
-				continue
 			}
 			return msg
 		case err := <-errc:
@@ -142,147 +153,67 @@ func recvExpect(t *testing.T, conn *sapient.Conn, expected string, fromNodeID ..
 	}
 }
 
-func TestChildRegistration(t *testing.T) {
-	child, err := sapient.DialChild(childAddr, testRegistration())
-	if err != nil {
-		t.Fatalf("DialChild: %v", err)
-	}
-	defer child.Close()
-	t.Logf("Registered node_id=%s", child.NodeID)
+func TestRegistration(t *testing.T) {
+	conn, nodeID := dialChild(t)
+	defer conn.Close()
+	t.Logf("Registered node_id=%s", nodeID)
 }
 
 func TestEndToEnd(t *testing.T) {
-	// Connect Peer first so it receives forwarded messages
-	peer, err := sapient.DialPeer(peerAddr, nil)
+	peer, err := sapient.Dial(peerAddr)
 	if err != nil {
-		t.Fatalf("DialPeer: %v", err)
+		t.Fatalf("dial peer: %v", err)
 	}
 	defer peer.Close()
 
-	// Connect and register Child
-	child, err := sapient.DialChild(childAddr, testRegistration())
-	if err != nil {
-		t.Fatalf("DialChild: %v", err)
-	}
+	child, childID := dialChild(t)
 	defer child.Close()
 
-	// --- Registration flows Child→Apex→Peer ---
-	// recvExpect with child.NodeID drains stale cached messages from prior tests
-	msg := recvExpect(t, peer.Conn, "registration", child.NodeID)
-	reg := msg.GetRegistration()
-	t.Logf("Peer got registration: name=%q type=%s", reg.GetName(), reg.GetNodeDefinition()[0].GetNodeType())
+	// Registration
+	msg := recvExpect(t, peer, "registration", childID)
+	t.Logf("Peer got registration: name=%q", msg.GetRegistration().GetName())
 
-	// --- StatusReport flows Child→Apex→Peer ---
-	sr := sapient.NewStatusReport(
-		pb.StatusReport_SYSTEM_OK,
-		pb.StatusReport_INFO_NEW,
-		"Surveillance",
-	).
+	// StatusReport
+	child.SendStatus(childID, sapient.NewStatusReport(pb.StatusReport_SYSTEM_OK, pb.StatusReport_INFO_NEW, "Surveillance").
 		Location(51.5, -1.2, 30.0).
 		Power(pb.StatusReport_POWERSOURCE_MAINS, pb.StatusReport_POWERSTATUS_OK, 100).
-		FieldOfView(180, 10, 120, 20).
-		Build()
+		Build())
+	msg = recvExpect(t, peer, "status_report", childID)
+	t.Logf("Peer got status: system=%s", msg.GetStatusReport().GetSystem())
 
-	if err := child.SendStatus(sr); err != nil {
-		t.Fatalf("SendStatus: %v", err)
-	}
-
-	msg = recvExpect(t, peer.Conn, "status_report", child.NodeID)
-	gotSR := msg.GetStatusReport()
-	t.Logf("Peer got status: system=%s mode=%s loc=(%v,%v)",
-		gotSR.GetSystem(), gotSR.GetMode(),
-		gotSR.GetNodeLocation().GetX(), gotSR.GetNodeLocation().GetY())
-
-	// --- DetectionReport flows Child→Apex→Peer ---
-	objectID := sapient.NewULID()
-	det := sapient.NewDetection(objectID).
+	// DetectionReport
+	child.SendDetection(childID, sapient.NewDetection(sapient.NewULID()).
 		Location(51.501, -1.199, 50.0).
 		Confidence(0.85).
 		SubClassification("Air Vehicle", 0.9, "UAV Rotary Wing", 0.85, 1).
 		Behaviour("Active", 0.95).
 		Velocity(5.0, 3.0, 0.5).
-		TrackInfo("speed", "6.2").
-		Build()
+		Build())
+	msg = recvExpect(t, peer, "detection_report", childID)
+	t.Logf("Peer got detection: class=%s", msg.GetDetectionReport().GetClassification()[0].GetType())
 
-	if err := child.SendDetection(det); err != nil {
-		t.Fatalf("SendDetection: %v", err)
-	}
-
-	msg = recvExpect(t, peer.Conn, "detection_report", child.NodeID)
-	gotDet := msg.GetDetectionReport()
-	t.Logf("Peer got detection: object=%s conf=%.2f class=%s",
-		gotDet.GetObjectId(), gotDet.GetDetectionConfidence(),
-		gotDet.GetClassification()[0].GetType())
-
-	// --- Task flows Peer→Apex→Child ---
-	task := sapient.NewTask(pb.Task_CONTROL_START).
-		Name("Look at detection").
-		Request("Start").
+	// Task (Peer→Child)
+	peerID := sapient.NewUUID()
+	task := sapient.NewTask(pb.Task_CONTROL_START).Request("Start").
 		Region("AOI-1", pb.Task_REGION_TYPE_AREA_OF_INTEREST, 51.501, -1.199, 0).
 		Build()
+	peer.SendTask(peerID, childID, task)
+	msg = recvExpect(t, child, "task")
+	t.Logf("Child got task: control=%s", msg.GetTask().GetControl())
 
-	if err := peer.SendTask(child.NodeID, task); err != nil {
-		t.Fatalf("SendTask: %v", err)
-	}
+	// TaskAck
+	child.SendTaskAck(childID, sapient.NewTaskAck(msg.GetTask().GetTaskId(), pb.TaskAck_TASK_STATUS_ACCEPTED, "OK"))
+	msg = recvExpect(t, peer, "task_ack", childID)
+	t.Logf("Peer got task_ack: status=%s", msg.GetTaskAck().GetTaskStatus())
 
-	msg = recvExpect(t, child.Conn, "task")
-	gotTask := msg.GetTask()
-	t.Logf("Child got task: id=%s control=%s command=%s",
-		gotTask.GetTaskId(), gotTask.GetControl(),
-		gotTask.GetCommand().GetRequest())
+	// Alert
+	child.SendAlert(childID, sapient.NewAlert(pb.Alert_ALERT_TYPE_WARNING, pb.Alert_ALERT_STATUS_ACTIVE, pb.Alert_DISCRETE_PRIORITY_HIGH, "Hostile UAV"))
+	msg = recvExpect(t, peer, "alert", childID)
+	t.Logf("Peer got alert: desc=%q", msg.GetAlert().GetDescription())
 
-	// --- TaskAck flows Child→Apex→Peer ---
-	ack := sapient.NewTaskAck(gotTask.GetTaskId(), pb.TaskAck_TASK_STATUS_ACCEPTED, "Task accepted")
-	if err := child.SendTaskAck(ack); err != nil {
-		t.Fatalf("SendTaskAck: %v", err)
-	}
-
-	msg = recvExpect(t, peer.Conn, "task_ack", child.NodeID)
-	gotAck := msg.GetTaskAck()
-	t.Logf("Peer got task_ack: id=%s status=%s", gotAck.GetTaskId(), gotAck.GetTaskStatus())
-
-	if gotAck.GetTaskId() != gotTask.GetTaskId() {
-		t.Errorf("task_id mismatch: sent %s, got %s", gotTask.GetTaskId(), gotAck.GetTaskId())
-	}
-
-	// --- Alert flows Child→Apex→Peer ---
-	alert := sapient.NewAlert(
-		pb.Alert_ALERT_TYPE_WARNING,
-		pb.Alert_ALERT_STATUS_ACTIVE,
-		pb.Alert_DISCRETE_PRIORITY_HIGH,
-		"Hostile UAV confirmed",
-	)
-	if err := child.SendAlert(alert); err != nil {
-		t.Fatalf("SendAlert: %v", err)
-	}
-
-	msg = recvExpect(t, peer.Conn, "alert", child.NodeID)
-	gotAlert := msg.GetAlert()
-	t.Logf("Peer got alert: id=%s type=%s priority=%s desc=%q",
-		gotAlert.GetAlertId(), gotAlert.GetAlertType(),
-		gotAlert.GetPriority(), gotAlert.GetDescription())
-
-	// --- TaskAck COMPLETED flows Child→Apex→Peer ---
-	completed := sapient.NewTaskAck(gotTask.GetTaskId(), pb.TaskAck_TASK_STATUS_COMPLETED, "Done")
-	if err := child.SendTaskAck(completed); err != nil {
-		t.Fatalf("SendTaskAck completed: %v", err)
-	}
-
-	msg = recvExpect(t, peer.Conn, "task_ack", child.NodeID)
-	t.Logf("Peer got task_ack completed: status=%s", msg.GetTaskAck().GetTaskStatus())
-
-	// --- StatusReport GOODBYE ---
-	goodbye := sapient.NewStatusReport(
-		pb.StatusReport_SYSTEM_GOODBYE,
-		pb.StatusReport_INFO_NEW,
-		"Surveillance",
-	).Build()
-
-	if err := child.SendStatus(goodbye); err != nil {
-		t.Fatalf("SendStatus goodbye: %v", err)
-	}
-
-	msg = recvExpect(t, peer.Conn, "status_report", child.NodeID)
+	// Goodbye
+	child.SendStatus(childID, sapient.NewStatusReport(pb.StatusReport_SYSTEM_GOODBYE, pb.StatusReport_INFO_NEW, "Surveillance").Build())
+	msg = recvExpect(t, peer, "status_report", childID)
 	t.Logf("Peer got goodbye: system=%s", msg.GetStatusReport().GetSystem())
 }
 

@@ -40,6 +40,12 @@ jobs:
       - name: Test against Apex
         run: make test
 
+      - name: Fuzz (30s per target)
+        run: |
+          go test -run='^$' -fuzz=FuzzRecv -fuzztime=30s ./pkg/sapient/
+          go test -run='^$' -fuzz=FuzzUnmarshalSapientMessage -fuzztime=30s ./pkg/sapient/
+          go test -run='^$' -fuzz=FuzzUnmarshalJSON -fuzztime=30s ./pkg/sapient/
+
       - name: Apex logs
         if: always()
         run: docker compose -f docker-compose.ci.yml logs apex

@@ -44,13 +44,8 @@ func Dial(addr string) (*Conn, error) {
 	return NewConn(conn), nil
 }
 
-// Send serializes and sends a SapientMessage with the length-prefix header.
-func (c *Conn) Send(msg *pb.SapientMessage) error {
-	data, err := proto.Marshal(msg)
-	if err != nil {
-		return fmt.Errorf("sapient marshal: %w", err)
-	}
-
+// SendRaw sends pre-serialized protobuf bytes with the length-prefix header.
+func (c *Conn) SendRaw(data []byte) error {
 	header := make([]byte, headerSize)
 	binary.LittleEndian.PutUint32(header, uint32(len(data)))
 
@@ -66,8 +61,17 @@ func (c *Conn) Send(msg *pb.SapientMessage) error {
 	return nil
 }
 
-// Recv reads and deserializes the next SapientMessage from the connection.
-func (c *Conn) Recv() (*pb.SapientMessage, error) {
+// Send serializes and sends a v2 SapientMessage.
+func (c *Conn) Send(msg *pb.SapientMessage) error {
+	data, err := proto.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("sapient marshal: %w", err)
+	}
+	return c.SendRaw(data)
+}
+
+// RecvRaw reads the next framed message and returns the raw protobuf bytes.
+func (c *Conn) RecvRaw() ([]byte, error) {
 	header := make([]byte, headerSize)
 	if _, err := io.ReadFull(c.conn, header); err != nil {
 		return nil, fmt.Errorf("sapient read header: %w", err)
@@ -82,7 +86,15 @@ func (c *Conn) Recv() (*pb.SapientMessage, error) {
 	if _, err := io.ReadFull(c.conn, data); err != nil {
 		return nil, fmt.Errorf("sapient read body: %w", err)
 	}
+	return data, nil
+}
 
+// Recv reads and deserializes the next message as a v2 SapientMessage.
+func (c *Conn) Recv() (*pb.SapientMessage, error) {
+	data, err := c.RecvRaw()
+	if err != nil {
+		return nil, err
+	}
 	msg := &pb.SapientMessage{}
 	if err := proto.Unmarshal(data, msg); err != nil {
 		return nil, fmt.Errorf("sapient unmarshal: %w", err)
@@ -103,6 +115,50 @@ func (c *Conn) RemoteAddr() net.Addr {
 // LocalAddr returns the local address of the connection.
 func (c *Conn) LocalAddr() net.Addr {
 	return c.conn.LocalAddr()
+}
+
+// SendStatus sends a StatusReport from nodeID.
+func (c *Conn) SendStatus(nodeID string, sr *pb.StatusReport) error {
+	msg := Msg(nodeID)
+	msg.Content = &pb.SapientMessage_StatusReport{StatusReport: sr}
+	return c.Send(msg)
+}
+
+// SendDetection sends a DetectionReport from nodeID.
+func (c *Conn) SendDetection(nodeID string, dr *pb.DetectionReport) error {
+	msg := Msg(nodeID)
+	msg.Content = &pb.SapientMessage_DetectionReport{DetectionReport: dr}
+	return c.Send(msg)
+}
+
+// SendAlert sends an Alert from nodeID.
+func (c *Conn) SendAlert(nodeID string, a *pb.Alert) error {
+	msg := Msg(nodeID)
+	msg.Content = &pb.SapientMessage_Alert{Alert: a}
+	return c.Send(msg)
+}
+
+// SendTaskAck sends a TaskAck from nodeID.
+func (c *Conn) SendTaskAck(nodeID string, ta *pb.TaskAck) error {
+	msg := Msg(nodeID)
+	msg.Content = &pb.SapientMessage_TaskAck{TaskAck: ta}
+	return c.Send(msg)
+}
+
+// SendTask sends a Task from nodeID to destinationID.
+func (c *Conn) SendTask(nodeID, destinationID string, t *pb.Task) error {
+	msg := Msg(nodeID)
+	msg.DestinationId = &destinationID
+	msg.Content = &pb.SapientMessage_Task{Task: t}
+	return c.Send(msg)
+}
+
+// SendAlertAck sends an AlertAck from nodeID to destinationID.
+func (c *Conn) SendAlertAck(nodeID, destinationID string, aa *pb.AlertAck) error {
+	msg := Msg(nodeID)
+	msg.DestinationId = &destinationID
+	msg.Content = &pb.SapientMessage_AlertAck{AlertAck: aa}
+	return c.Send(msg)
 }
 
 // IsConnectionClosed returns true if the error indicates a closed connection.

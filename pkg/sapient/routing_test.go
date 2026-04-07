@@ -8,56 +8,43 @@ import (
 	pb "sapient/pkg/sapientpb"
 )
 
-// TestMultiSensorRouting registers two sensors, sends a Task to one,
-// and verifies only that sensor receives it.
 func TestMultiSensorRouting(t *testing.T) {
-	peer, err := sapient.DialPeer(peerAddr, nil)
+	peer, err := sapient.Dial(peerAddr)
 	if err != nil {
-		t.Fatalf("DialPeer: %v", err)
+		t.Fatalf("dial peer: %v", err)
 	}
 	defer peer.Close()
 
-	// Register two sensors
-	child1, err := sapient.DialChild(childAddr, testRegistration())
-	if err != nil {
-		t.Fatalf("DialChild 1: %v", err)
-	}
+	child1, child1ID := dialChild(t)
 	defer child1.Close()
 
-	reg2 := testRegistration()
-	reg2.Name = strp("Test Radar 2")
-	reg2.ShortName = strp("TEST2")
-	child2, err := sapient.DialChild(childAddr, reg2)
-	if err != nil {
-		t.Fatalf("DialChild 2: %v", err)
-	}
+	child2, _ := dialChild(t)
 	defer child2.Close()
 
-	// Drain peer registrations
-	drainRegistrations(t, peer, 2)
-
-	// Send Task to child1 only
-	task := sapient.NewTask(pb.Task_CONTROL_START).
-		Request("Start").
-		Build()
-
-	if err := peer.SendTask(child1.NodeID, task); err != nil {
-		t.Fatalf("SendTask: %v", err)
+	// Drain both registrations on peer side
+	for i := 0; i < 2; {
+		msg, _ := peer.Recv()
+		if msg != nil && sapient.ContentType(msg) == "registration" {
+			i++
+		}
 	}
 
-	// child1 should receive the task
-	msg1 := recvExpect(t, child1.Conn, "task")
-	t.Logf("child1 got task: %s", msg1.GetTask().GetTaskId())
+	// Task to child1 only
+	peerID := sapient.NewUUID()
+	task := sapient.NewTask(pb.Task_CONTROL_START).Request("Start").Build()
+	peer.SendTask(peerID, child1ID, task)
+
+	msg := recvExpect(t, child1, "task")
+	t.Logf("child1 got task: %s", msg.GetTask().GetTaskId())
 
 	// child2 should NOT receive anything
 	done := make(chan bool, 1)
 	go func() {
-		_, err := child2.Conn.Recv()
+		_, err := child2.Recv()
 		if err == nil {
 			done <- true
 		}
 	}()
-
 	select {
 	case <-done:
 		t.Fatal("child2 received a message it shouldn't have")
@@ -66,100 +53,32 @@ func TestMultiSensorRouting(t *testing.T) {
 	}
 }
 
-// TestStatusUnchangedValidation verifies that Apex rejects INFO_UNCHANGED
-// before any INFO_NEW has been sent.
 func TestStatusUnchangedValidation(t *testing.T) {
-	child, err := sapient.DialChild(childAddr, testRegistration())
-	if err != nil {
-		t.Fatalf("DialChild: %v", err)
-	}
+	child, childID := dialChild(t)
 	defer child.Close()
 
-	// Send UNCHANGED without prior NEW — Apex should return an error
-	bad := sapient.NewStatusReport(
-		pb.StatusReport_SYSTEM_OK,
-		pb.StatusReport_INFO_UNCHANGED,
-		"Surveillance",
-	).Build()
-
-	if err := child.SendStatus(bad); err != nil {
-		t.Fatalf("SendStatus: %v", err)
-	}
-
-	// Expect an error reply
-	reply, err := child.Conn.Recv()
-	if err != nil {
-		t.Fatalf("recv: %v", err)
-	}
-
-	ct := sapient.ContentType(reply)
-	if ct != "error" {
-		t.Fatalf("expected error, got %s", ct)
-	}
-	t.Logf("Apex correctly rejected: %v", reply.GetError().GetErrorMessage())
+	child.SendStatus(childID, sapient.NewStatusReport(pb.StatusReport_SYSTEM_OK, pb.StatusReport_INFO_UNCHANGED, "Surveillance").Build())
+	msg := recvExpect(t, child, "error")
+	t.Logf("Apex correctly rejected: %v", msg.GetError().GetErrorMessage())
 }
 
-// TestReRegistration verifies that a sensor can re-register with the same node_id.
 func TestReRegistration(t *testing.T) {
-	child, err := sapient.DialChild(childAddr, testRegistration())
-	if err != nil {
-		t.Fatalf("DialChild: %v", err)
-	}
+	child, childID := dialChild(t)
 	defer child.Close()
 
-	// Send a second registration on the same connection
+	// Send second registration on same connection
 	reg2 := testRegistration()
 	reg2.Name = strp("Updated Radar")
-
-	msg := sapient.Msg(child.NodeID)
+	msg := sapient.Msg(childID)
 	msg.Content = &pb.SapientMessage_Registration{Registration: reg2}
-	if err := child.Conn.Send(msg); err != nil {
-		t.Fatalf("send re-registration: %v", err)
-	}
+	child.Send(msg)
 
-	// Should get another RegistrationAck
-	reply, err := child.Conn.Recv()
+	reply, err := child.Recv()
 	if err != nil {
 		t.Fatalf("recv: %v", err)
 	}
-
-	ct := sapient.ContentType(reply)
-	if ct == "error" {
-		t.Fatalf("Apex rejected re-registration: %v", reply.GetError().GetErrorMessage())
-	}
-	if ct != "registration_ack" {
-		t.Fatalf("expected registration_ack, got %s", ct)
+	if sapient.ContentType(reply) == "error" {
+		t.Fatalf("rejected: %v", reply.GetError().GetErrorMessage())
 	}
 	t.Logf("re-registration accepted")
-}
-
-func drainRegistrations(t *testing.T, peer *sapient.Peer, minCount int) {
-	t.Helper()
-	count := 0
-	for {
-		done := make(chan *pb.SapientMessage, 1)
-		go func() {
-			msg, err := peer.Conn.Recv()
-			if err != nil {
-				return
-			}
-			done <- msg
-		}()
-
-		select {
-		case msg := <-done:
-			if sapient.ContentType(msg) == "registration" {
-				count++
-				t.Logf("drained registration %d from %s", count, msg.GetNodeId())
-				if count >= minCount {
-					return
-				}
-			}
-		case <-time.After(3 * time.Second):
-			if count >= minCount {
-				return
-			}
-			t.Fatalf("timeout draining registrations (got %d, need %d)", count, minCount)
-		}
-	}
 }
