@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"sapient/pkg/sapient"
-	pb "sapient/pkg/sapientpb"
+	"github.com/aep/gosapient/pkg/sapient"
+	pb "github.com/aep/gosapient/pkg/sapientpb"
 )
 
 func apexAddr(envKey, fallback string) string {

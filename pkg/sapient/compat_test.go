@@ -5,7 +5,7 @@ import (
 	"os/exec"
 	"testing"
 
-	"sapient/pkg/sapient"
+	"github.com/aep/gosapient/pkg/sapient"
 )
 
 // TestPythonToGoWireCompat starts a Go SAPIENT listener, then runs the Dstl

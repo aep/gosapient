@@ -6,7 +6,7 @@ import (
 	"log"
 	"os"
 
-	"sapient/pkg/sapient"
+	"github.com/aep/gosapient/pkg/sapient"
 
 	"google.golang.org/protobuf/encoding/protojson"
 )

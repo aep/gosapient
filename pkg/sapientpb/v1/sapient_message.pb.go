@@ -15,7 +15,7 @@ import (
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
-	_ "sapient/pkg/sapientpb"
+	_ "github.com/aep/gosapient/pkg/sapientpb"
 	sync "sync"
 )
 

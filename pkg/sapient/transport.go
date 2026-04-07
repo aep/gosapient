@@ -13,7 +13,7 @@ import (
 	"net"
 	"sync"
 
-	pb "sapient/pkg/sapientpb"
+	pb "github.com/aep/gosapient/pkg/sapientpb"
 
 	"google.golang.org/protobuf/proto"
 )

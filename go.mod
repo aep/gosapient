@@ -1,4 +1,4 @@
-module sapient
+module github.com/aep/gosapient
 
 go 1.26.1
 

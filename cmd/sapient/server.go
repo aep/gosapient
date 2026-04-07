@@ -7,8 +7,8 @@ import (
 	"os"
 	"sync/atomic"
 
-	"sapient/pkg/sapient"
-	pb "sapient/pkg/sapientpb"
+	"github.com/aep/gosapient/pkg/sapient"
+	pb "github.com/aep/gosapient/pkg/sapientpb"
 
 	"google.golang.org/protobuf/encoding/protojson"
 )

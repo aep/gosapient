@@ -1,7 +1,7 @@
 package sapient
 
 import (
-	pb "sapient/pkg/sapientpb"
+	pb "github.com/aep/gosapient/pkg/sapientpb"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 )

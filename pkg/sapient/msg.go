@@ -7,7 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/oklog/ulid/v2"
 
-	pb "sapient/pkg/sapientpb"
+	pb "github.com/aep/gosapient/pkg/sapientpb"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 )

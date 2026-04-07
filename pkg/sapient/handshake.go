@@ -3,7 +3,7 @@ package sapient
 import (
 	"fmt"
 
-	pb "sapient/pkg/sapientpb"
+	pb "github.com/aep/gosapient/pkg/sapientpb"
 )
 
 // Register sends a Registration on conn and waits for a RegistrationAck.

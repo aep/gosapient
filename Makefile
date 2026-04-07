@@ -5,8 +5,8 @@ HARNESS_DIR     := build/test-harness
 STAGING         := build/proto-staging
 FIXTURES_DIR    := $(HARNESS_DIR)/SapientServicesValidator.UnitTests
 
-GO_PKG_V1       := sapient/pkg/sapientpb/v1
-GO_PKG_V2       := sapient/pkg/sapientpb
+GO_PKG_V1       := github.com/aep/gosapient/pkg/sapientpb/v1
+GO_PKG_V2       := github.com/aep/gosapient/pkg/sapientpb
 PROTO_OPTS_SRC  := $(PROTO_DIR)/proto_options.proto
 
 .PHONY: proto build test fuzz clean ci-up ci-down ci-test fixtures
@@ -34,14 +34,14 @@ proto: $(PROTO_DIR)
 	protoc \
 		--proto_path=$(STAGING) \
 		--go_out=. \
-		--go_opt=module=sapient \
+		--go_opt=module=github.com/aep/gosapient \
 		$(STAGING)/sapient_msg/proto_options.proto \
 		$(STAGING)/sapient_msg/bsi_flex_335_v2_0/*.proto
 	@# Generate v1.0
 	protoc \
 		--proto_path=$(STAGING) \
 		--go_out=. \
-		--go_opt=module=sapient \
+		--go_opt=module=github.com/aep/gosapient \
 		$(STAGING)/sapient_msg/bsi_flex_335_v1_0/*.proto
 	@echo "Generated v2: $$(ls pkg/sapientpb/*.go | wc -l) files, v1: $$(ls pkg/sapientpb/v1/*.go | wc -l) files"
 
