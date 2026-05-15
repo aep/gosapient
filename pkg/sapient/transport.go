@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"time"
 
 	pb "github.com/aep/gosapient/pkg/sapientpb"
 
@@ -41,7 +42,15 @@ func Dial(addr string) (*Conn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sapient dial %s: %w", addr, err)
 	}
+	enableKeepalive(conn)
 	return NewConn(conn), nil
+}
+
+func enableKeepalive(conn net.Conn) {
+	if tc, ok := conn.(*net.TCPConn); ok {
+		tc.SetKeepAlive(true)
+		tc.SetKeepAlivePeriod(30 * time.Second)
+	}
 }
 
 // SendRaw sends pre-serialized protobuf bytes with the length-prefix header.

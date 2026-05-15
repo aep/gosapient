@@ -25,6 +25,7 @@ func (l *Listener) Accept() (*Conn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sapient accept: %w", err)
 	}
+	enableKeepalive(conn)
 	return NewConn(conn), nil
 }
 
