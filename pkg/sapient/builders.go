@@ -38,8 +38,8 @@ func (b *StatusReportBuilder) Power(source pb.StatusReport_PowerSource, status p
 
 func (b *StatusReportBuilder) Location(lat, lng, alt float64) *StatusReportBuilder {
 	b.sr.NodeLocation = &pb.Location{
-		X:                &lat,
-		Y:                &lng,
+		X:                &lng,
+		Y:                &lat,
 		Z:                &alt,
 		CoordinateSystem: pb.LocationCoordinateSystem_LOCATION_COORDINATE_SYSTEM_LAT_LNG_DEG_M.Enum(),
 		Datum:            pb.LocationDatum_LOCATION_DATUM_WGS84_E.Enum(),
@@ -99,8 +99,8 @@ func (b *DetectionBuilder) TaskID(taskID string) *DetectionBuilder {
 func (b *DetectionBuilder) Location(lat, lng, alt float64) *DetectionBuilder {
 	b.dr.LocationOneof = &pb.DetectionReport_Location{
 		Location: &pb.Location{
-			X:                &lat,
-			Y:                &lng,
+			X:                &lng,
+			Y:                &lat,
 			Z:                &alt,
 			CoordinateSystem: pb.LocationCoordinateSystem_LOCATION_COORDINATE_SYSTEM_LAT_LNG_DEG_M.Enum(),
 			Datum:            pb.LocationDatum_LOCATION_DATUM_WGS84_E.Enum(),
@@ -241,8 +241,8 @@ func (b *TaskBuilder) LookAt(lat, lng, alt float64) *TaskBuilder {
 				FovOneof: &pb.LocationOrRangeBearing_LocationList{
 					LocationList: &pb.LocationList{
 						Locations: []*pb.Location{{
-							X:                &lat,
-							Y:                &lng,
+							X:                &lng,
+							Y:                &lat,
 							Z:                &alt,
 							CoordinateSystem: pb.LocationCoordinateSystem_LOCATION_COORDINATE_SYSTEM_LAT_LNG_DEG_M.Enum(),
 							Datum:            pb.LocationDatum_LOCATION_DATUM_WGS84_E.Enum(),
@@ -276,8 +276,8 @@ func (b *TaskBuilder) Region(name string, typ pb.Task_RegionType, lat, lng, alt 
 			FovOneof: &pb.LocationOrRangeBearing_LocationList{
 				LocationList: &pb.LocationList{
 					Locations: []*pb.Location{{
-						X:                &lat,
-						Y:                &lng,
+						X:                &lng,
+						Y:                &lat,
 						Z:                &alt,
 						CoordinateSystem: pb.LocationCoordinateSystem_LOCATION_COORDINATE_SYSTEM_LAT_LNG_DEG_M.Enum(),
 						Datum:            pb.LocationDatum_LOCATION_DATUM_WGS84_E.Enum(),
